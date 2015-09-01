@@ -1724,7 +1724,14 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
                 size = 0;
             }
 
-            uint8_t *buffer = new uint8_t[size + chunk_size];
+            if ((chunk_size > SIZE_MAX) || (SIZE_MAX - chunk_size <= size)) {
+                return ERROR_MALFORMED;
+            }
+            
+            uint8_t *buffer = new (std::nothrow) uint8_t[size + chunk_size];
+            if (buffer == NULL) {
+                return ERROR_MALFORMED;
+            }
 
             if (size > 0) {
                 memcpy(buffer, data, size);
@@ -1735,6 +1742,8 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
                 delete[] buffer;
                 buffer = NULL;
 
+                // advance read pointer so we don't end up reading this again
+                *offset += chunk_size;
                 return ERROR_IO;
             }
 
@@ -1752,12 +1761,16 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
             if (mFileMetaData != NULL) {
                 ALOGV("chunk_data_size = %lld and data_offset = %lld",
                         chunk_data_size, data_offset);
+                if (chunk_data_size >= SIZE_MAX - 1)
+                    return ERROR_MALFORMED;
                 sp<ABuffer> buffer = new ABuffer(chunk_data_size + 1);
                 if (mDataSource->readAt(
                     data_offset, buffer->data(), chunk_data_size) != (ssize_t)chunk_data_size) {
                     return ERROR_IO;
                 }
                 const int kSkipBytesOfDataBox = 16;
+                if (chunk_data_size <= kSkipBytesOfDataBox)
+                    return ERROR_MALFORMED;
                 mFileMetaData->setData(
                     kKeyAlbumArt, MetaData::TYPE_NONE,
                     buffer->data() + kSkipBytesOfDataBox, chunk_data_size - kSkipBytesOfDataBox);
